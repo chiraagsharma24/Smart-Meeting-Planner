@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Meeting Planner</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container my-5">
+        <div class="row">
+            <div class="col-lg-8 mx-auto">
+                <div class="text-center mb-5">
+                    <h1 class="display-4 mb-3">
+                        <i class="fas fa-calendar-alt me-3"></i>
+                        Smart Meeting Planner
+                    </h1>
+                    <p class="lead text-muted">Find optimal meeting times by analyzing busy intervals</p>
+                </div>
+
+                <!-- Input Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-users me-2"></i>
+                            User Availability
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="jsonInput" class="form-label">Paste JSON with user busy intervals:</label>
+                            <textarea 
+                                id="jsonInput" 
+                                class="form-control" 
+                                rows="8" 
+                                placeholder='Example:
+{
+  "users": [
+    { "id": 1, "busy": [["09:00","10:30"], ["13:00","14:00"]] },
+    { "id": 2, "busy": [["11:00","12:00"], ["15:00","16:00"]] }
+  ]
+}'></textarea>
+                            <div class="form-text">
+                                Working hours: 09:00-18:00 IST. Use HH:MM format for times.
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex gap-2 mb-3">
+                            <button id="loadSampleData" class="btn btn-outline-secondary">
+                                <i class="fas fa-file-alt me-1"></i>
+                                Load Sample Data
+                            </button>
+                            <button id="clearData" class="btn btn-outline-warning">
+                                <i class="fas fa-trash me-1"></i>
+                                Clear All Data
+                            </button>
+                        </div>
+
+                        <button id="submitSlots" class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i>
+                            Submit User Schedules
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Suggest Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-search me-2"></i>
+                            Find Available Slots
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-end mb-3">
+                            <div class="col-md-6">
+                                <label for="duration" class="form-label">Meeting Duration (minutes):</label>
+                                <input type="number" id="duration" class="form-control" value="30" min="1" max="540">
+                            </div>
+                            <div class="col-md-6">
+                                <button id="suggestButton" class="btn btn-success">
+                                    <i class="fas fa-magic me-2"></i>
+                                    Suggest Meeting Times
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div id="resultsSection" class="card" style="display: none;">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-clock me-2"></i>
+                            Available Time Slots
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="resultsTable"></div>
+                    </div>
+                </div>
+
+                <!-- Calendar Section -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-user me-2"></i>
+                            User Calendar
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-end mb-3">
+                            <div class="col-md-6">
+                                <label for="userId" class="form-label">User ID:</label>
+                                <input type="number" id="userId" class="form-control" value="1" min="1">
+                            </div>
+                            <div class="col-md-6">
+                                <button id="viewCalendar" class="btn btn-info">
+                                    <i class="fas fa-calendar me-2"></i>
+                                    View Calendar
+                                </button>
+                            </div>
+                        </div>
+                        <div id="calendarResults"></div>
+                    </div>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="statusMessages" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Base URL for API endpoints - empty string means same origin
+        const API_BASE = '';
+
+        // Cache DOM elements we'll need to reference frequently
+        const jsonInput = document.getElementById('jsonInput');
+        const submitSlotsBtn = document.getElementById('submitSlots');
+        const suggestBtn = document.getElementById('suggestButton');
+        const durationInput = document.getElementById('duration');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsTable = document.getElementById('resultsTable');
+        const statusMessages = document.getElementById('statusMessages');
+        const loadSampleBtn = document.getElementById('loadSampleData');
+        const clearDataBtn = document.getElementById('clearData');
+        const viewCalendarBtn = document.getElementById('viewCalendar');
+        const userIdInput = document.getElementById('userId');
+        const calendarResults = document.getElementById('calendarResults');
+
+        // Sample data for quick testing - includes overlapping busy times
+        const sampleData = {
+            "users": [
+                { "id": 1, "busy": [["09:00","10:30"], ["13:00","14:00"]] },
+                { "id": 2, "busy": [["11:00","12:00"], ["15:00","16:00"]] },
+                { "id": 3, "busy": [["09:30","10:00"], ["14:30","15:30"]] }
+            ]
+        };
+
+        // Shows a dismissible alert message that auto-fades after 5 seconds
+        function showMessage(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            statusMessages.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        // Removes all status messages from the UI
+        function clearMessages() {
+            statusMessages.innerHTML = '';
+        }
+
+        // Load sample data for quick testing
+        loadSampleBtn.addEventListener('click', () => {
+            jsonInput.value = JSON.stringify(sampleData, null, 2);
+            showMessage('Sample data loaded successfully!', 'success');
+        });
+
+        // Clear all stored data and reset the UI
+        clearDataBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/reset`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                if (response.ok) {
+                    jsonInput.value = '';
+                    resultsSection.style.display = 'none';
+                    calendarResults.innerHTML = '';
+                    showMessage('All data cleared successfully!', 'success');
+                } else {
+                    const error = await response.json();
+                    showMessage(`Error: ${error.error}`, 'danger');
+                }
+            } catch (error) {
+                showMessage(`Network error: ${error.message}`, 'danger');
+            }
+        });
+
+        // Submit user schedules to the server
+        submitSlotsBtn.addEventListener('click', async () => {
+            clearMessages();
+            const jsonData = jsonInput.value.trim();
+            
+            if (!jsonData) {
+                showMessage('Please enter JSON data first.', 'warning');
+                return;
+            }
+
+            try {
+                const parsedData = JSON.parse(jsonData);
+                
+                const response = await fetch(`${API_BASE}/slots`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(parsedData)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showMessage(result.message, 'success');
+                } else {
+                    showMessage(`Error: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                if (error instanceof SyntaxError) {
+                    showMessage('Invalid JSON format. Please check your input.', 'danger');
+                } else {
+                    showMessage(`Network error: ${error.message}`, 'danger');
+                }
+            }
+        });
+
+        // Find available meeting times for the given duration
+        suggestBtn.addEventListener('click', async () => {
+            clearMessages();
+            const duration = durationInput.value;
+            
+            if (!duration || duration <= 0) {
+                showMessage('Please enter a valid duration.', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/suggest?duration=${duration}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    displayResults(result, duration);
+                    if (result.length === 0) {
+                        showMessage('No available time slots found for the requested duration.', 'info');
+                    } else {
+                        showMessage(`Found ${result.length} available time slot(s).`, 'success');
+                    }
+                } else {
+                    showMessage(`Error: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showMessage(`Network error: ${error.message}`, 'danger');
+            }
+        });
+
+        // Display available time slots in a table with booking buttons
+        function displayResults(slots, duration) {
+            if (slots.length === 0) {
+                resultsTable.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        No available time slots found for ${duration} minutes.
+                    </div>
+                `;
+            } else {
+                let tableHTML = `
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th scope="col">#</th>
+                                    <th scope="col">Start Time</th>
+                                    <th scope="col">End Time</th>
+                                    <th scope="col">Duration</th>
+                                    <th scope="col">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                slots.forEach((slot, index) => {
+                    tableHTML += `
+                        <tr>
+                            <th scope="row">${index + 1}</th>
+                            <td><i class="fas fa-play text-success me-1"></i>${slot[0]}</td>
+                            <td><i class="fas fa-stop text-danger me-1"></i>${slot[1]}</td>
+                            <td>${duration} minutes</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="bookSlot('${slot[0]}', '${slot[1]}')">
+                                    <i class="fas fa-book me-1"></i>Book
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                resultsTable.innerHTML = tableHTML;
+                resultsSection.style.display = 'block';
+            }
+        }
+
+        // Book a meeting slot and update the UI accordingly
+        async function bookSlot(startTime, endTime) {
+            clearMessages();
+            
+            // Find and disable the clicked button to prevent double-booking
+            const bookButtons = document.querySelectorAll('button[onclick*="bookSlot"]');
+            let clickedButton = null;
+            
+            bookButtons.forEach(btn => {
+                if (btn.onclick.toString().includes(startTime) && btn.onclick.toString().includes(endTime)) {
+                    clickedButton = btn;
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Booking...';
+                }
+            });
+            
+            try {
+                const response = await fetch(`${API_BASE}/book`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        start: startTime,
+                        end: endTime
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showMessage(`✅ Meeting booked successfully from ${startTime} to ${endTime}!`, 'success');
+                    
+                    // Update button to show booked state
+                    if (clickedButton) {
+                        clickedButton.className = 'btn btn-sm btn-success';
+                        clickedButton.innerHTML = '<i class="fas fa-check me-1"></i>Booked';
+                        clickedButton.disabled = true;
+                    }
+                    
+                    // Refresh suggestions to show updated availability
+                    setTimeout(() => {
+                        suggestBtn.click();
+                    }, 1000);
+                } else {
+                    showMessage(`Error: ${result.error}`, 'danger');
+                    if (clickedButton) {
+                        clickedButton.disabled = false;
+                        clickedButton.innerHTML = '<i class="fas fa-book me-1"></i>Book';
+                    }
+                }
+            } catch (error) {
+                showMessage(`Network error: ${error.message}`, 'danger');
+                if (clickedButton) {
+                    clickedButton.disabled = false;
+                    clickedButton.innerHTML = '<i class="fas fa-book me-1"></i>Book';
+                }
+            }
+        }
+
+        // View user calendar
+        viewCalendarBtn.addEventListener('click', async () => {
+            clearMessages();
+            const userId = userIdInput.value;
+            
+            if (!userId) {
+                showMessage('Please enter a user ID.', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/calendar/${userId}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    displayCalendar(result);
+                    showMessage(`Calendar loaded for user ${userId}.`, 'success');
+                } else {
+                    showMessage(`Error: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showMessage(`Network error: ${error.message}`, 'danger');
+            }
+        });
+
+        // Display calendar
+        function displayCalendar(calendarData) {
+            let calendarHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-user-clock me-2"></i>Busy Slots</h5>
+            `;
+            
+            if (calendarData.busy_slots.length === 0) {
+                calendarHTML += `<p class="text-muted">No busy slots</p>`;
+            } else {
+                calendarHTML += `<ul class="list-group">`;
+                calendarData.busy_slots.forEach(slot => {
+                    calendarHTML += `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-clock text-warning me-2"></i>${slot[0]} - ${slot[1]}</span>
+                            <span class="badge bg-warning rounded-pill">Busy</span>
+                        </li>
+                    `;
+                });
+                calendarHTML += `</ul>`;
+            }
+            
+            calendarHTML += `
+                    </div>
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-calendar-check me-2"></i>Booked Meetings</h5>
+            `;
+            
+            if (calendarData.booked_meetings.length === 0) {
+                calendarHTML += `<p class="text-muted">No booked meetings</p>`;
+            } else {
+                calendarHTML += `<ul class="list-group">`;
+                calendarData.booked_meetings.forEach(meeting => {
+                    calendarHTML += `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-handshake text-success me-2"></i>${meeting.start} - ${meeting.end}</span>
+                            <span class="badge bg-success rounded-pill">Booked</span>
+                        </li>
+                    `;
+                });
+                calendarHTML += `</ul>`;
+            }
+            
+            calendarHTML += `
+                    </div>
+                </div>
+            `;
+            
+            calendarResults.innerHTML = calendarHTML;
+        }
+
+        // Initialize with sample data
+        window.addEventListener('load', () => {
+            loadSampleBtn.click();
+        });
+    </script>
+
+    <!-- Footer -->
+    <footer class="footer mt-5 py-3 bg-dark text-center">
+        <div class="container">
+            <p class="mb-0">
+                Built by Chirag Sharma | 
+                <a href="https://github.com/chiraagsharma24/Smart-Meeting-Planner" target="_blank" class="text-light">
+                    <i class="fab fa-github me-1"></i>Source Code
+                </a>
+            </p>
+        </div>
+    </footer>
+</body>
+</html>
